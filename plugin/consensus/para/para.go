@@ -14,18 +14,18 @@ import (
 
 	"sync/atomic"
 
-	"time"
-
 	"github.com/33cn/chain33/client/api"
 	"github.com/33cn/chain33/common/crypto"
 	"github.com/33cn/chain33/common/merkle"
 	"github.com/33cn/chain33/queue"
 	"github.com/33cn/chain33/rpc/grpcclient"
+	"github.com/33cn/chain33/rpc/jsonclient"
 	drivers "github.com/33cn/chain33/system/consensus"
 	cty "github.com/33cn/chain33/system/dapp/coins/types"
 	"github.com/33cn/chain33/types"
 	paracross "github.com/33cn/plugin/plugin/dapp/paracross/types"
 	pt "github.com/33cn/plugin/plugin/dapp/paracross/types"
+	"time"
 )
 
 const (
@@ -53,6 +53,7 @@ func init() {
 type client struct {
 	*drivers.BaseClient
 	grpcClient      types.Chain33Client
+	jsonClient      *jsonclient.JSONClient
 	execAPI         api.ExecutorAPI
 	caughtUp        int32
 	commitMsgClient *commitMsgClient
@@ -71,7 +72,8 @@ type client struct {
 
 type subConfig struct {
 	WriteBlockSeconds       int64    `json:"writeBlockSeconds,omitempty"`
-	ParaRemoteGrpcClient    string   `json:"paraRemoteGrpcClient,omitempty"`
+	GrpcMoudle              bool     `json:"grpcMoudle,omitempty"`
+	RpcClient               string   `json:"rpcClient,omitempty"`
 	StartHeight             int64    `json:"startHeight,omitempty"`
 	GenesisStartHeightSame  bool     `json:"genesisStartHeightSame,omitempty"`
 	EmptyBlockInterval      []string `json:"emptyBlockInterval,omitempty"`
@@ -214,14 +216,22 @@ func (client *client) SetQueueClient(c queue.Client) {
 
 func (client *client) InitBlock() {
 	var err error
-
-	client.execAPI = api.New(client.BaseClient.GetAPI(), client.grpcClient)
+	//client.execAPI = api.New(client.BaseClient.GetAPI(), client.grpcClient)
 	cfg := client.GetAPI().GetConfig()
-	grpcCli, err := grpcclient.NewMainChainClient(cfg, "")
-	if err != nil {
-		panic(err)
+	//rpcaddr := types.Conf(cfg, "config.consensus.sub.para").GStr("rpcClient")
+	//client.grpcMoudle = client.subCfg.grpcMoudle //types.Conf(cfg, "config.consensus.sub.para").IsEnable("grpcModule")
+	if client.subCfg.GrpcMoudle {
+		grpcCli, err := grpcclient.NewMainChainClient(cfg, client.subCfg.RpcClient)
+		if err != nil {
+			panic(err)
+		}
+		client.grpcClient = grpcCli
+	} else {
+		client.jsonClient, err = jsonclient.NewJSONClient(client.subCfg.RpcClient)
+		if err != nil {
+			panic(err)
+		}
 	}
-	client.grpcClient = grpcCli
 
 	err = client.commitMsgClient.setSelfConsEnable()
 	if err != nil {
