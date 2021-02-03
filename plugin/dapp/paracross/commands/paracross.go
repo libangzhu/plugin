@@ -7,16 +7,15 @@ package commands
 import (
 	"encoding/hex"
 	"fmt"
-	"math"
-	"os"
-	"strings"
-
 	"github.com/33cn/chain33/rpc/jsonclient"
 	rpctypes "github.com/33cn/chain33/rpc/types"
 	"github.com/33cn/chain33/system/dapp/commands"
 	"github.com/33cn/chain33/types"
 	pt "github.com/33cn/plugin/plugin/dapp/paracross/types"
 	"github.com/spf13/cobra"
+	"math"
+	"os"
+	"strings"
 )
 
 //ParcCmd paracross cmd register
@@ -45,7 +44,19 @@ func ParcCmd() *cobra.Command {
 		GetLocalBlockInfoCmd(),
 		GetConsensDoneInfoCmd(),
 		blsCmd(),
+		DeleteBlocksCmd(),
 	)
+	return cmd
+}
+
+//DeleteBlockCmd
+func DeleteBlocksCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete_blocks",
+		Short: "Delete all blocks after the specified height",
+		Run:   deleteBlocks,
+	}
+	addDeleteBlocksCmdFlags(cmd)
 	return cmd
 }
 
@@ -56,10 +67,14 @@ func CreateRawAssetTransferCmd() *cobra.Command {
 		Short: "Create a asset transfer to para-chain transaction",
 		Run:   createAssetTransfer,
 	}
-	addCreateAssetTransferFlags(cmd)
 	return cmd
 }
 
+func addDeleteBlocksCmdFlags(cmd *cobra.Command) {
+	cmd.Flags().Int64P("start", "s", -1, "specified start height")
+	cmd.MarkFlagRequired("height")
+
+}
 func addCreateAssetTransferFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("to", "t", "", "receiver account address")
 	cmd.MarkFlagRequired("to")
@@ -1101,6 +1116,21 @@ func blsPubKey(cmd *cobra.Command, args []string) {
 	ctx.Run()
 }
 
+func deleteBlocks(cmd *cobra.Command, args []string) {
+	rpcLaddr, _ := cmd.Flags().GetString("rpc_laddr")
+	height, err := cmd.Flags().GetInt64("start")
+	if err != nil {
+		fmt.Println("getparam err", err)
+		return
+	}
+	//需要通过jrpc通信，传输数据
+	var params types.ReqInt
+	params.Height=height
+	var res rpctypes.Reply
+	ctx := jsonclient.NewRPCCtx(rpcLaddr, "paracross.DeleteBlocks", &params, &res)
+	ctx.Run()
+
+}
 func consusHeight(cmd *cobra.Command, args []string) {
 	rpcLaddr, _ := cmd.Flags().GetString("rpc_laddr")
 	paraName, _ := cmd.Flags().GetString("paraName")

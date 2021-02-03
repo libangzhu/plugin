@@ -52,6 +52,16 @@ func TestJrpc_IsSync(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestJrpc_DeleteBlocks(t *testing.T){
+	api := new(mocks.QueueProtocolAPI)
+	J := newJrpc(api)
+	req := &types.ReqInt{Height:0}
+	var result interface{}
+	api.On("QueryConsensusFunc", "para", "DeleteBlocks", req).Return(&types.Reply{}, nil)
+	err := J.DeleteBlocks(req, &result)
+	assert.NotNil(t, err)
+}
+
 //TODO wait finish
 //func TestRPC_CallTestNode(t *testing.T) {
 //	api := new(mocks.QueueProtocolAPI)

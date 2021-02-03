@@ -6,6 +6,7 @@ package para
 
 import (
 	"bytes"
+	"os"
 	"sync"
 	"sync/atomic"
 
@@ -39,6 +40,11 @@ func verifyBlockHash(heights []*types.BlockInfo, blocks []*types.ParaTxDetail) e
 		heightMap[h.Height] = h.Hash
 	}
 	for _, b := range blocks {
+		if b.Header.Height==12579{
+			jm,_:=types.PBToJSON(b)
+			plog.Info("verifyBlockHash",string(jm),"")
+			os.Exit(0)
+		}
 		if !bytes.Equal(heightMap[b.Header.Height], b.Header.Hash) {
 			plog.Error("jumpDld.verifyBlockHash", "height", b.Header.Height,
 				"heightsHash", common.ToHex(heightMap[b.Header.Height]), "tx", b.Header.Hash)
@@ -64,6 +70,7 @@ func (j *jumpDldClient) getParaHeightList(startHeight, endHeight int64) ([]*type
 		}
 		//分页查找，只获取范围内的高度
 		for _, h := range heights.Items {
+
 			if h.Height >= startHeight && h.Height <= endHeight {
 				heightList = append(heightList, h)
 			}

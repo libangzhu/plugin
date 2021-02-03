@@ -13,6 +13,19 @@ import (
 	pt "github.com/33cn/plugin/plugin/dapp/paracross/types"
 )
 
+// Delete Blocks 删除指定高度之后的所有区块
+func (client *client) Query_DeleteBlocks(req *types.ReqInt) (types.Message, error) {
+	if client == nil {
+		return nil, fmt.Errorf("%s", "client not bind message queue.")
+	}
+	err := client.blsSignCli.paraClient.delLocalBlock(req.Height)
+	if err != nil {
+		plog.Error("Query_DeleteBlocks", "height", req.Height, "err", err.Error())
+		return &types.Reply{IsOk: false}, err
+	}
+	return &types.Reply{IsOk: true}, nil
+}
+
 //IsCaughtUp 是否追上最新高度,
 func (client *client) Query_IsCaughtUp(req *types.ReqNil) (types.Message, error) {
 	if client == nil {

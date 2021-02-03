@@ -6,6 +6,9 @@ package para
 
 import (
 	"context"
+	"encoding/json"
+	rty "github.com/33cn/chain33/rpc/types"
+	"github.com/prometheus/common/log"
 	"time"
 
 	"strings"
@@ -563,12 +566,25 @@ func (client *commitMsgClient) sendCommitTxOut(tx *types.Transaction) error {
 	if tx == nil {
 		return nil
 	}
-	resp, err := client.paraClient.grpcClient.SendTransaction(context.Background(), tx)
+	var resp =new(types.Reply)
+	var err error
+	if client.paraClient.subCfg.GrpcMoudle {
+		resp, err = client.paraClient.grpcClient.SendTransaction(context.Background(), tx)
+	}else{
+		var rawParam rty.RawParm
+		rawParam.Data=common.ToHex(types.Encode(tx))
+		var txHash string
+	err=client.paraClient.jsonClient.Call("SendTransaction",rawParam,&txHash)
+	if err==nil{
+		resp.IsOk=true
+		resp.Msg=common.HexToHash(txHash).Bytes()
+	}
+	}
+
 	if err != nil {
 		plog.Error("sendCommitTxOut send tx", "tx", common.ToHex(tx.Hash()), "err", err.Error())
 		return err
 	}
-
 	if !resp.GetIsOk() {
 		plog.Error("sendCommitTxOut send tx Nok", "tx", common.ToHex(tx.Hash()), "err", string(resp.GetMsg()))
 		return errors.New(string(resp.GetMsg()))
@@ -738,7 +754,18 @@ func (client *commitMsgClient) getGenesisNodeStatus() (*pt.ParacrossNodeStatus, 
 //only sync once, as main usually sync, here just need the first sync status after start up
 func (client *commitMsgClient) mainSync() error {
 	req := &types.ReqNil{}
-	reply, err := client.paraClient.grpcClient.IsSync(context.Background(), req)
+	var reply = new(types.Reply)
+	var err error
+	if client.paraClient.subCfg.GrpcMoudle {
+		reply, err = client.paraClient.grpcClient.IsSync(context.Background(), req)
+	} else {
+		var isok bool
+		err = client.paraClient.jsonClient.Call("IsSync", req, &isok)
+		if err == nil {
+			reply.IsOk = isok
+		}
+	}
+
 	if err != nil {
 		plog.Error("Paracross main is syncing", "err", err.Error())
 		return err
@@ -809,7 +836,18 @@ out:
 }
 
 func (client *commitMsgClient) GetProperFeeRate() error {
-	feeRate, err := client.paraClient.grpcClient.GetProperFee(context.Background(), &types.ReqProperFee{})
+	var feeRate=new(types.ReplyProperFee)
+	var err error
+	if client.paraClient.subCfg.GrpcMoudle {
+		feeRate, err = client.paraClient.grpcClient.GetProperFee(context.Background(), &types.ReqProperFee{})
+	}else{
+		var properFee rty.ReplyProperFee
+		err=client.paraClient.jsonClient.Call("GetProperFee",types.ReqProperFee{},&properFee)
+		if err==nil{
+			feeRate.ProperFee=properFee.ProperFee
+		}
+	}
+
 	if err != nil {
 		plog.Error("para commit.GetProperFee", "err", err.Error())
 		return err
@@ -877,7 +915,7 @@ func (client *commitMsgClient) getSelfConsensusStatus() (*pt.ParacrossStatus, er
 
 }
 
-//通过grpc获取主链状态可能耗时，放在定时器里面处理
+//通过grpc,jsonrpc 获取主链状态可能耗时，放在定时器里面处理
 func (client *commitMsgClient) getMainConsensusStatus() (*pt.ParacrossStatus, error) {
 	block, err := client.paraClient.getLastBlockInfo()
 	if err != nil {
@@ -885,15 +923,37 @@ func (client *commitMsgClient) getMainConsensusStatus() (*pt.ParacrossStatus, er
 	}
 	cfg := client.paraClient.GetAPI().GetConfig()
 	//去主链获取共识高度
-	reply, err := client.paraClient.grpcClient.QueryChain(context.Background(), &types.ChainExecutor{
-		Driver:   "paracross",
-		FuncName: "GetTitleByHash",
-		Param:    types.Encode(&pt.ReqParacrossTitleHash{Title: cfg.GetTitle(), BlockHash: block.MainHash}),
-	})
+	var reply = new(types.Reply)
+	if client.paraClient.subCfg.GrpcMoudle {
+		reply, err = client.paraClient.grpcClient.QueryChain(context.Background(), &types.ChainExecutor{
+			Driver:   "paracross",
+			FuncName: "GetTitleByHash",
+			Param:    types.Encode(&pt.ReqParacrossTitleHash{Title: cfg.GetTitle(), BlockHash: block.MainHash}),
+		})
+	} else {
+		var rpy json.RawMessage
+		var palyload json.RawMessage
+		palyload, _ = types.PBToJSON(&pt.ReqParacrossTitleHash{Title: cfg.GetTitle(), BlockHash: block.MainHash})
+		err = client.paraClient.jsonClient.Call("QueryChain", rty.ChainExecutor{
+			Driver:   "paracross",
+			FuncName: "GetTitleByHash",
+			Payload:  palyload,
+		}, &rpy)
+		if err == nil {
+			log.Debug("getMainConsensusStatus", " reply", string(rpy))
+			var result pt.ParacrossStatus
+			err = types.JSONToPB(rpy, &result)
+			if err == nil {
+				return &result, nil
+			}
+		}
+	}
+
 	if err != nil {
 		plog.Error("getMainConsensusStatus", "err", err.Error())
 		return nil, err
 	}
+
 	if !reply.GetIsOk() {
 		plog.Info("getMainConsensusStatus nok", "error", reply.GetMsg())
 		return nil, types.ErrNotFound
@@ -904,6 +964,7 @@ func (client *commitMsgClient) getMainConsensusStatus() (*pt.ParacrossStatus, er
 		plog.Error("getMainConsensusStatus decode", "err", err.Error())
 		return nil, err
 	}
+
 	return &result, nil
 
 }

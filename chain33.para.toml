@@ -5,7 +5,7 @@ EnableParaFork=true
 
 [log]
 # 日志级别，支持debug(dbug)/info/warn/error(eror)/crit
-loglevel = "debug"
+loglevel = "info"
 logConsoleLevel = "info"
 # 日志文件名，可带目录，所有生成的日志文件都放到此目录下
 logFile = "logs/chain33.para.log"
@@ -100,7 +100,9 @@ unBindTime=24
 [consensus.sub.para]
 #主链节点的grpc服务器ip，当前可以支持多ip负载均衡，如“118.31.177.1:8802,39.97.2.127:8802”
 #ParaRemoteGrpcClient="118.31.177.1:8802,39.97.2.127:8802,120.77.111.44:8802,jiedian2.bityuan.com,cloud.bityuan.com"
-ParaRemoteGrpcClient="localhost:8802"
+#grpcMoudle true采用grpc,false 采用jsonrpc
+grpcModule=false
+rpcClient="http://116.63.166.13:9901"
 #主链指定高度的区块开始同步
 startHeight=345850
 #打包时间间隔，单位秒
@@ -119,6 +121,7 @@ mainForkParacrossCommitTx=2270000
 mainLoopCheckCommitTxDoneForkHeight=4320000
 #无平行链交易的主链区块间隔，平行链产生一个空块，从高度0开始，配置[blockHeight:interval],比如["0:50","1000:100"]
 emptyBlockInterval=["0:50"]
+JumpDownloadClose=false
 
 
 [store]

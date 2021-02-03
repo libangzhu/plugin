@@ -8,10 +8,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-
 	"github.com/33cn/chain33/common"
+	"github.com/33cn/chain33/common/address"
 	rty "github.com/33cn/chain33/rpc/types"
 	"github.com/33cn/chain33/types"
+	"github.com/gogo/protobuf/proto"
+	"reflect"
 )
 
 func (client *client) GetBlockByHeight(height int64) (*types.Block, error) {
@@ -38,10 +40,10 @@ func (client *client) GetBlockHeaders(req *types.ReqBlocks) (*types.Headers, err
 		var rheader rty.Headers
 		err = client.jsonClient.Call("GetHeaders", req, &rheader)
 		if err == nil {
-			for index, rheader := range rheader.Items {
+			for _, rheader := range rheader.Items {
 				var header types.Header
 				convertHeader(rheader, &header)
-				headers.Items[index] = &header
+				headers.Items = append(headers.Items, &header)
 			}
 		}
 	}
@@ -116,7 +118,11 @@ func (client *client) GetLastSeqOnMainChain() (int64, error) {
 	if client.subCfg.GrpcMoudle {
 		seq, err = client.grpcClient.GetLastBlockSequence(context.Background(), &types.ReqNil{})
 	} else {
-		err = client.jsonClient.Call("GetLastBlockSequence", &types.ReqNil{}, seq)
+		var seqi interface{}
+		err = client.jsonClient.Call("GetLastBlockSequence", &types.ReqNil{}, &seqi)
+		if err == nil {
+			seq.Data = int64(seqi.(float64))
+		}
 	}
 
 	if err != nil {
@@ -136,7 +142,7 @@ func (client *client) GetHashByHeightOnMainChain(height int64) ([]byte, error) {
 		var blockhash rty.ReplyHash
 		err = client.jsonClient.Call("GetBlockHash", &types.ReqInt{Height: height}, &blockhash)
 		if err == nil {
-			reply.Hash = common.HexToHash(blockhash.Hash).Bytes()
+			reply.Hash ,_= common.FromHex(blockhash.Hash)
 		}
 
 	}
@@ -151,10 +157,12 @@ func (client *client) GetHashByHeightOnMainChain(height int64) ([]byte, error) {
 func (client *client) GetSeqByHashOnMainChain(hash []byte) (int64, error) {
 	var seq = new(types.Int64)
 	var err error
+
 	if client.subCfg.GrpcMoudle {
 		seq, err = client.grpcClient.GetSequenceByHash(context.Background(), &types.ReqHash{Hash: hash})
 	} else {
-		err = client.jsonClient.Call("GetSequenceByHash", types.ReqHash{Hash: hash}, seq)
+		err = client.jsonClient.Call("GetSequenceByHash", rty.ReqHashes{Hashes: []string{common.ToHex(hash)}}, seq)
+		plog.Info("GetSeqByHashOnMainChain", "seq",seq.Data)
 	}
 
 	if err != nil {
@@ -172,16 +180,17 @@ func (client *client) GetBlockOnMainBySeq(seq int64) (*types.BlockSeq, error) {
 	if client.subCfg.GrpcMoudle {
 		blockSeq, err = client.grpcClient.GetBlockBySeq(context.Background(), &types.Int64{Data: seq})
 	} else {
-		var rblockseq rty.BlockSeq
-		err = client.jsonClient.Call("GetBlockBySeq", &types.Int64{Data: seq}, &rblockseq)
+
+		var rblockSeq rty.BlockSeq
+		err = client.jsonClient.Call("GetBlockBySeq", types.Int64{Data: seq}, &rblockSeq)
 		if err == nil {
-			blockSeq.Num = rblockseq.Num
-			var blockdetail types.BlockDetail
+			blockSeq.Num = rblockSeq.Num
+			var blockDetail types.BlockDetail
 			var details rty.BlockDetails
-			details.Items = append(details.Items, rblockseq.Detail)
-			err = convertBlockDetails(&details, []*types.BlockDetail{&blockdetail}, false)
+			details.Items = append(details.Items, rblockSeq.Detail)
+			err = convertBlockDetails(&details, []*types.BlockDetail{&blockDetail}, false)
 			if err == nil {
-				blockSeq.Detail = &blockdetail
+				blockSeq.Detail = &blockDetail
 			}
 
 		}
@@ -210,32 +219,14 @@ func (client *client) GetParaTxByTitle(req *types.ReqParaTxByTitle) (*types.Para
 		txDetails, err = client.grpcClient.GetParaTxByTitle(context.Background(), req)
 	} else {
 		var details rty.ParaTxDetails
-		err = client.jsonClient.Call("GetParaTxByTitle", req, &details)
+		err = client.jsonClient.Call("GetParaTxByTitle", *req, &details)
 		if err == nil {
-			for index, item := range details.Items {
-				var pdetail types.ParaTxDetail
-				pdetail.Type = item.Type
-				pdetail.ChildHash = common.HexToHash(item.ChildHash).Bytes()
-				pdetail.Index = item.Index
-				for _, proof := range item.Proofs {
-					pdetail.Proofs = append(pdetail.Proofs, common.HexToHash(proof).Bytes())
-				}
-				var header types.Header
-				convertHeader(item.Header, &header)
-				pdetail.Header = &header
-				for _, txdetail := range item.TxDetails {
-					var detail types.TxDetail
-					convertTxdetail(txdetail, &detail)
-					pdetail.TxDetails = append(pdetail.TxDetails, &detail)
-				}
-
-				txDetails.Items[index] = &pdetail
-			}
+			convertParaTxDetails(&details,txDetails)
 		}
 	}
 
 	if err != nil {
-		plog.Error("GetParaTxByTitle wrong", "err", err.Error(), "start", req.Start, "end", req.End)
+		plog.Error("GetParaTxByTitle wrong", "err", err.Error(), "start", req.Start, "end", req.End, "title", req.Title)
 		return nil, err
 	}
 
@@ -250,7 +241,7 @@ func (client *client) QueryTxOnMainByHash(hash []byte) (*types.TransactionDetail
 		detail, err = client.grpcClient.QueryTransaction(context.Background(), &types.ReqHash{Hash: hash})
 	} else {
 		var rtx rty.TransactionDetail
-		err = client.jsonClient.Call("QueryTransaction", &rty.QueryParm{Hash: hex.EncodeToString(hash)}, &rtx)
+		err = client.jsonClient.Call("QueryTransaction", rty.QueryParm{Hash: hex.EncodeToString(hash)}, &rtx)
 		if err == nil {
 			convertTransactionDetail(&rtx, detail)
 		}
@@ -264,7 +255,7 @@ func (client *client) QueryTxOnMainByHash(hash []byte) (*types.TransactionDetail
 	return detail, nil
 }
 
-//GetParaHeightsByTitle
+//GetParaHeightsByTitle Yes
 func (client *client) GetParaHeightsByTitle(req *types.ReqHeightByTitle) (*types.ReplyHeightByTitle, error) {
 	//from blockchain db
 	var heights = new(types.ReplyHeightByTitle)
@@ -273,12 +264,12 @@ func (client *client) GetParaHeightsByTitle(req *types.ReqHeightByTitle) (*types
 		heights, err = client.grpcClient.LoadParaTxByTitle(context.Background(), req)
 	} else {
 		var rheights rty.ReplyHeightByTitle
-		err = client.jsonClient.Call("LoadParaTxByTitle", req, &rheights)
+		err = client.jsonClient.Call("LoadParaTxByTitle", *req, &rheights)
 		if err == nil {
 			heights.Title = rheights.Title
 			for _, item := range rheights.Items {
 				var info types.BlockInfo
-				info.Hash = common.HexToHash(item.Hash).Bytes()
+				info.Hash ,_= common.FromHex(item.Hash)
 				info.Height = item.Height
 				heights.Items = append(heights.Items, &info)
 			}
@@ -294,35 +285,18 @@ func (client *client) GetParaHeightsByTitle(req *types.ReqHeightByTitle) (*types
 	return heights, nil
 }
 
-//GetParaTxByHeight
+//GetParaTxByHeight Yes
 func (client *client) GetParaTxByHeight(req *types.ReqParaTxByHeight) (*types.ParaTxDetails, error) {
 	//from blockchain db
-	var blocks = new(types.ParaTxDetails)
+	var txdetails = new(types.ParaTxDetails)
 	var err error
 	if client.subCfg.GrpcMoudle {
-		blocks, err = client.grpcClient.GetParaTxByHeight(context.Background(), req)
+		txdetails, err = client.grpcClient.GetParaTxByHeight(context.Background(), req)
 	} else {
-		var rpcBlocks rty.ParaTxDetails
-		err = client.jsonClient.Call("GetParaTxByHeight", req, &rpcBlocks)
+		var rpctxdetails rty.ParaTxDetails
+		err = client.jsonClient.Call("GetParaTxByHeight", *req, &rpctxdetails)
 		if err == nil {
-			for index, item := range rpcBlocks.Items {
-				var ptxdetail types.ParaTxDetail
-				ptxdetail.Index = item.Index
-				ptxdetail.ChildHash = common.HexToHash(item.ChildHash).Bytes()
-				ptxdetail.Type = item.Type
-				for _, proof := range item.Proofs {
-					ptxdetail.Proofs = append(ptxdetail.Proofs, common.HexToHash(proof).Bytes())
-				}
-
-				for _, txdetail := range item.TxDetails {
-					var detail types.TxDetail
-					convertTxdetail(txdetail, &detail)
-					ptxdetail.TxDetails = append(ptxdetail.TxDetails, &detail)
-				}
-
-				blocks.Items[index] = &ptxdetail
-			}
-
+			convertParaTxDetails(&rpctxdetails, txdetails)
 		}
 	}
 
@@ -332,58 +306,59 @@ func (client *client) GetParaTxByHeight(req *types.ReqParaTxByHeight) (*types.Pa
 	}
 
 	//可以小于等于，不能大于
-	if len(blocks.Items) > len(req.Items) {
+	if len(txdetails.Items) > len(req.Items) {
 		plog.Error("GetParaTxByHeight get blocks more than req")
 		return nil, types.ErrInvalidParam
 	}
-	return blocks, nil
+	return txdetails, nil
 }
 
 func convertTxdetail(txdetail *rty.TxDetail, retTxdetail *types.TxDetail) {
-
-	retTxdetail.Index = txdetail.Index
-	for _, proof := range txdetail.Proofs {
-		retTxdetail.Proofs = append(retTxdetail.Proofs, common.HexToHash(proof).Bytes())
-	}
 	var receiptdata types.ReceiptData
 	receiptdata.Ty = txdetail.Receipt.Ty
 	for _, log := range txdetail.Receipt.Logs {
-		receiptdata.Logs = append(receiptdata.Logs, common.HexToHash(log).Bytes())
+		var rlog types.ReceiptLog
+		rlog.Log,_ = common.FromHex(log.Log)
+		rlog.Ty = log.Ty
+		receiptdata.Logs = append(receiptdata.Logs, &rlog)
 	}
-	var tx types.Transaction
-	tx.Payload = common.HexToHash(txdetail.Tx.RawPayload).Bytes()
-	tx.Expire = txdetail.Tx.Expire
-	tx.Next = common.HexToHash(txdetail.Tx.Next).Bytes()
-	tx.To = txdetail.Tx.To
-	tx.Nonce = txdetail.Tx.Nonce
-	tx.GroupCount = txdetail.Tx.GroupCount
-	tx.Header = common.HexToHash(txdetail.Tx.Header).Bytes()
-	tx.Signature = &types.Signature{Signature: common.HexToHash(txdetail.Tx.Signature.Signature).Bytes(),
-		Pubkey: common.HexToHash(txdetail.Tx.Signature.Pubkey).Bytes(), Ty: txdetail.Tx.Signature.Ty}
 
+	var tx types.Transaction
+	convertTx(txdetail.Tx,&tx)
+	retTxdetail.Index = txdetail.Index
+	for _, proof := range txdetail.Proofs {
+		pbf,_:=common.FromHex(proof)
+		retTxdetail.Proofs = append(retTxdetail.Proofs, pbf)
+	}
+	retTxdetail.Receipt=&receiptdata
 	retTxdetail.Tx = &tx
 
 }
 
 func convertHeader(header *rty.Header, retHeader *types.Header) {
 	retHeader.Height = header.Height
-	retHeader.Hash = common.HexToHash(header.Hash).Bytes()
+	retHeader.Hash,_ = common.FromHex(header.Hash)
 	retHeader.Version = header.Version
 	retHeader.BlockTime = header.BlockTime
 	retHeader.TxCount = header.TxCount
 	retHeader.Difficulty = header.Difficulty
-	retHeader.ParentHash = common.HexToHash(header.ParentHash).Bytes()
-	retHeader.StateHash = common.HexToHash(header.StateHash).Bytes()
-	retHeader.TxHash = common.HexToHash(header.TxHash).Bytes()
-	retHeader.Signature.Ty = header.Signature.Ty
-	retHeader.Signature.Pubkey = common.HexToHash(header.Signature.Pubkey).Bytes()
-	retHeader.Signature.Signature = common.HexToHash(header.Signature.Signature).Bytes()
+	retHeader.ParentHash,_ = common.FromHex(header.ParentHash)
+	retHeader.StateHash,_ = common.FromHex(header.StateHash)
+	retHeader.TxHash,_ = common.FromHex(header.TxHash)
+	if header.Signature != nil {
+		var sig types.Signature
+		sig.Ty = header.Signature.Ty
+		sig.Pubkey,_ = common.FromHex(header.Signature.Pubkey)
+		sig.Signature,_ = common.FromHex(header.Signature.Signature)
+		retHeader.Signature = &sig
+	}
 
 }
 
 func convertBlockDetails(details *rty.BlockDetails, retDetails []*types.BlockDetail, isDetail bool) error {
-	var retDetail types.BlockDetail
+
 	for _, item := range details.Items {
+		var retDetail types.BlockDetail
 		var block types.Block
 		if item == nil || item.Block == nil {
 			retDetails = append(retDetails, nil)
@@ -393,46 +368,114 @@ func convertBlockDetails(details *rty.BlockDetails, retDetails []*types.BlockDet
 		block.BlockTime = item.Block.BlockTime
 		block.Height = item.Block.Height
 		block.Version = item.Block.Version
-		block.ParentHash = common.HexToHash(item.Block.ParentHash).Bytes()
-		block.StateHash = common.HexToHash(item.Block.StateHash).Bytes()
-		block.TxHash = common.HexToHash(item.Block.TxHash).Bytes()
+		block.ParentHash,_ = common.FromHex(item.Block.ParentHash)
+		block.StateHash,_ = common.FromHex(item.Block.StateHash)
+		block.TxHash,_ = common.FromHex(item.Block.TxHash)
+		block.Difficulty=item.Block.Difficulty
+		pub,_:=common.FromHex(item.Block.Signature.Pubkey)
+		sig,_:=common.FromHex(item.Block.Signature.Signature)
+
+		block.Signature=&types.Signature{Ty:item.Block.Signature.Ty,Pubkey:pub,
+			Signature:sig}
+		block.MainHeight=item.Block.MainHeight
+		block.MainHash,_=common.FromHex(item.Block.MainHash)
+
 		txs := item.Block.Txs
 		if isDetail && len(txs) != len(item.Receipts) { //只有获取详情时才需要校验txs和Receipts的数量是否相等CHAIN33-540
 			return types.ErrDecode
 		}
 		for _, tx := range txs {
-			var tran = &types.Transaction{
-				Execer:     []byte(tx.Execer),
-				Fee:        tx.Fee,
-				Expire:     tx.Expire,
-				Header:     common.HexToHash(tx.Header).Bytes(),
-				Next:       common.HexToHash(tx.Next).Bytes(),
-				To:         tx.To,
-				Nonce:      tx.Nonce,
-				GroupCount: tx.GroupCount,
-				Signature: &types.Signature{Ty: tx.Signature.Ty,
-					Pubkey:    common.HexToHash(tx.Signature.Pubkey).Bytes(),
-					Signature: common.HexToHash(tx.Signature.Signature).Bytes()},
-				Payload: common.HexToHash(tx.RawPayload).Bytes(),
-			}
-
-			block.Txs = append(block.Txs, tran)
+			var tran types.Transaction
+			convertTx(tx,&tran)
+			block.Txs = append(block.Txs, &tran)
 		}
 		retDetail.Block = &block
-
-		for i, rp := range item.Receipts {
+		for _, rp := range item.Receipts {
 			var recp types.ReceiptData
 			recp.Ty = rp.Ty
 			for _, log := range rp.Logs {
+				lg,_:=common.FromHex(log.RawLog)
 				recp.Logs = append(recp.Logs,
-					&types.ReceiptLog{Ty: log.Ty, Log: common.HexToHash(log.RawLog).Bytes()})
+					&types.ReceiptLog{Ty: log.Ty, Log: lg})
 			}
 
 			retDetail.Receipts = append(retDetail.Receipts, &recp)
 		}
 		retDetails = append(retDetails, &retDetail)
 	}
+
 	return nil
+}
+
+
+func convetLog(execer string,rlog *rty.ReceiptDataResult,result *types.ReceiptData){
+
+	result.Ty=rlog.Ty
+	for _,l:=range rlog.Logs{
+		var logIns []byte
+		logType := types.LoadLog([]byte(execer), int64(l.Ty))
+		if logType == nil {
+			logIns = nil
+		} else {
+			var info *types.LogInfo
+			ety:=types.LoadExecutorType(execer)
+			if ety!=nil{
+				logMap := ety.GetLogMap()
+			logTy,ok:=	logMap[int64(rlog.Ty)]
+			if !ok{
+				continue
+			}
+			info=logTy
+			}else{
+				logty,ok:=	types.SystemLog[int64(rlog.Ty)]
+				if ok{
+					info=logty
+				}else{
+					info=types.SystemLog[0]
+				}
+			}
+
+			pdata := reflect.New(info.Ty)
+			 if !pdata.CanInterface() {
+				continue
+			}
+			msg,ok:=pdata.Interface().(proto.Message)
+			if !ok{
+				continue
+			}
+			proto.Unmarshal(l.Log,msg)
+			logIns=	types.Encode(msg)
+		}
+		result.Logs=append(result.Logs,&types.ReceiptLog{Ty:l.Ty,Log:logIns})
+
+	}
+
+
+}
+
+func convertTx(tx *rty.Transaction,reTx  *types.Transaction){
+	reTx.Execer=[]byte(tx.Execer)
+	reTx.Fee=tx.Fee
+	reTx.Expire=tx.Expire
+	reTx.Nonce=tx.Nonce
+	reTx.GroupCount=tx.GroupCount
+	reTx.Header,_=common.FromHex(tx.Header)
+	reTx.Next,_=common.FromHex(tx.Next)
+	reTx.Payload,_=common.FromHex(tx.RawPayload)
+	pub,_:=common.FromHex(tx.Signature.Pubkey)
+	sig,_:=common.FromHex(tx.Signature.Signature)
+	if tx.Signature != nil {
+		reTx.Signature = &types.Signature{Ty: tx.Signature.Ty,
+			Pubkey:    pub,
+			Signature: sig}
+	}
+	exec := types.LoadExecutorType(tx.Execer)
+	if exec==nil{
+		reTx.To=tx.To
+	}else{
+		reTx.To=address.ExecAddress(tx.Execer)
+	}
+
 }
 
 func convertTransactionDetail(detail *rty.TransactionDetail, redetail *types.TransactionDetail) {
@@ -447,43 +490,31 @@ func convertTransactionDetail(detail *rty.TransactionDetail, redetail *types.Tra
 	}
 	var proofs [][]byte
 	for _, proof := range detail.Proofs {
-		proofs = append(proofs, common.HexToHash(proof).Bytes())
+		pf,_:=common.FromHex(proof)
+		proofs = append(proofs, pf)
 	}
 	var receipt types.ReceiptData
-	receipt.Ty = detail.Receipt.Ty
-	for _, log := range detail.Receipt.Logs {
-		receipt.Logs = append(receipt.Logs, &types.ReceiptLog{Ty: log.Ty, Log: common.HexToHash(log.RawLog).Bytes()})
-	}
+	//convert ReceiptDataResult to ReceiptData
+	convetLog(detail.Tx.Execer,detail.Receipt,&receipt)
+
 
 	var txproofs []*types.TxProof
 	for _, txproof := range detail.TxProofs {
 		var tyTxproof types.TxProof
 		tyTxproof.Index = txproof.Index
-		tyTxproof.RootHash = common.HexToHash(txproof.RootHash).Bytes()
+		tyTxproof.RootHash ,_= common.FromHex(txproof.RootHash)
 		for _, proof := range txproof.Proofs {
-			tyTxproof.Proofs = append(tyTxproof.Proofs, common.HexToHash(proof).Bytes())
+			pf,_:=common.FromHex(proof)
+			tyTxproof.Proofs = append(tyTxproof.Proofs, pf)
 		}
 
 		txproofs = append(txproofs, &tyTxproof)
 
 	}
 
-	var tran = &types.Transaction{
-		Execer:     []byte(detail.Tx.Execer),
-		Fee:        detail.Tx.Fee,
-		Expire:     detail.Tx.Expire,
-		Header:     common.HexToHash(detail.Tx.Header).Bytes(),
-		Next:       common.HexToHash(detail.Tx.Next).Bytes(),
-		To:         detail.Tx.To,
-		Nonce:      detail.Tx.Nonce,
-		GroupCount: detail.Tx.GroupCount,
-		Signature: &types.Signature{Ty: detail.Tx.Signature.Ty,
-			Pubkey:    common.HexToHash(detail.Tx.Signature.Pubkey).Bytes(),
-			Signature: common.HexToHash(detail.Tx.Signature.Signature).Bytes()},
-		Payload: common.HexToHash(detail.Tx.RawPayload).Bytes(),
-	}
-
-	redetail.Tx = tran
+	var tran types.Transaction
+	convertTx(detail.Tx,&tran)
+	redetail.Tx = &tran
 	redetail.Height = detail.Height
 	redetail.Index = detail.Index
 	redetail.Blocktime = detail.Blocktime
@@ -494,6 +525,33 @@ func convertTransactionDetail(detail *rty.TransactionDetail, redetail *types.Tra
 	redetail.ActionName = detail.ActionName
 	redetail.Assets = assets
 	redetail.TxProofs = txproofs
-	redetail.FullHash = common.HexToHash(detail.FullHash).Bytes()
+	redetail.FullHash,_ = common.FromHex(detail.FullHash)
+
+}
+
+func convertParaTxDetails(ptxdetails *rty.ParaTxDetails, message *types.ParaTxDetails) {
+	for _, item := range ptxdetails.Items {
+		var ptxdetail types.ParaTxDetail
+		var header types.Header
+		ptxdetail.Index = item.Index
+		ptxdetail.ChildHash ,_= common.FromHex(item.ChildHash)
+		ptxdetail.Type = item.Type
+		for _, proof := range item.Proofs {
+			pf,_:=common.FromHex(proof)
+			ptxdetail.Proofs = append(ptxdetail.Proofs, pf)
+		}
+
+		for _, txdetail := range item.TxDetails {
+			var detail types.TxDetail
+			convertTxdetail(txdetail, &detail)
+			ptxdetail.TxDetails = append(ptxdetail.TxDetails, &detail)
+		}
+
+		convertHeader(item.Header,&header)
+		ptxdetail.Header = &header
+		message.Items = append(message.Items, &ptxdetail)
+	}
+
+	return
 
 }

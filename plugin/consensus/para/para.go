@@ -48,6 +48,7 @@ var (
 func init() {
 	drivers.Reg("para", New)
 	drivers.QueryData.Register("para", &client{})
+
 }
 
 type client struct {
@@ -362,6 +363,10 @@ func (client *client) ProcEvent(msg *queue.Message) bool {
 		}
 
 		return true
+	}else if msg.Ty==types.EventDeleteBlocks{
+		//delete blocks
+		plog.Error("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+		return  true
 	}
 
 	return false

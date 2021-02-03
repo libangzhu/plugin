@@ -7,7 +7,6 @@ package executor
 import (
 	"bytes"
 	"encoding/hex"
-
 	"github.com/33cn/chain33/common"
 	"github.com/33cn/chain33/common/crypto"
 	log "github.com/33cn/chain33/common/log/log15"
@@ -15,6 +14,7 @@ import (
 	"github.com/33cn/chain33/types"
 	"github.com/33cn/chain33/util"
 	pt "github.com/33cn/plugin/plugin/dapp/paracross/types"
+	"reflect"
 )
 
 var (
@@ -31,7 +31,11 @@ type Paracross struct {
 
 //Init paracross exec register
 func Init(name string, cfg *types.Chain33Config, sub []byte) {
-	drivers.Register(cfg, GetName(), newParacross, cfg.GetDappFork(driverName, "Enable"))
+	drivers.Register(cfg, GetName(), newDirver, cfg.GetDappFork(driverName, "Enable"))
+	para:=newParacross()
+	//QueryFunc 不能放置在 chain33/dapp，chain33/common下，会导致循环引用的问题
+	types.QueryFunc.Register(name,para )
+	types.QueryFunc.SetThis(name, reflect.ValueOf(para))
 	InitExecType()
 	setPrefix()
 }
@@ -46,8 +50,10 @@ func InitExecType() {
 func GetName() string {
 	return newParacross().GetName()
 }
-
-func newParacross() drivers.Driver {
+func newDirver() drivers.Driver{
+	return newParacross()
+}
+func newParacross() *Paracross {
 	c := &Paracross{}
 	c.SetChild(c)
 	c.SetExecutorType(types.LoadExecutorType(driverName))

@@ -299,6 +299,10 @@ func verifyMainBlockHash(preMainBlockHash []byte, mainBlock *types.ParaTxDetail)
 func verifyMainBlocks(preMainBlockHash []byte, mainBlocks *types.ParaTxDetails) error {
 	pre := preMainBlockHash
 	for _, block := range mainBlocks.Items {
+		if block.Header.Height==12579{
+			jmb,_:=types.PBToJSON(block)
+			plog.Info("verifyMainBlocks",string(jmb),"")
+		}
 		err := verifyMainBlockHash(pre, block)
 		if err != nil {
 			return err

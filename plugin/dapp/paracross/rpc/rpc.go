@@ -6,7 +6,7 @@ package rpc
 
 import (
 	"context"
-
+	"fmt"
 	"github.com/33cn/chain33/types"
 	pt "github.com/33cn/plugin/plugin/dapp/paracross/types"
 )
@@ -108,5 +108,17 @@ func (c *Jrpc) GetParaBlsPubKey(in *types.ReqString, result *interface{}) error 
 		return err
 	}
 	*result = data
+	return nil
+}
+
+func (c* Jrpc)DeleteBlocks(in *types.ReqInt,result *interface{})error{
+	if in.Height<=0{
+		return fmt.Errorf("para err" )
+	}
+	data, err := c.cli.QueryConsensusFunc("para", "DeleteBlocks", in)
+	if err != nil {
+		return err
+	}
+	*result=data
 	return nil
 }
