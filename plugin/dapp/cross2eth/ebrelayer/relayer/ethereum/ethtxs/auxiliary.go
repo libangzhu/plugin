@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	chain33Address "github.com/33cn/chain33/common/address"
-	"github.com/33cn/plugin/plugin/dapp/cross2eth/ebrelayer/contracts/contracts4eth/generated"
-	"github.com/33cn/plugin/plugin/dapp/cross2eth/ebrelayer/contracts/contracts4eth/generated/erc20"
+	"github.com/33cn/plugin/plugin/dapp/cross2eth/contracts/contracts4eth/generated"
+	egenerated "github.com/33cn/plugin/plugin/dapp/cross2eth/contracts/erc20/generated"
+	//"github.com/33cn/plugin/plugin/dapp/cross2eth/ebrelayer/contracts/contracts4eth/generated"
+	//"github.com/33cn/plugin/plugin/dapp/cross2eth/ebrelayer/contracts/contracts4eth/generated/erc20"
 	"github.com/33cn/plugin/plugin/dapp/cross2eth/ebrelayer/relayer/ethereum/ethinterface"
 	"github.com/33cn/plugin/plugin/dapp/cross2eth/ebrelayer/relayer/events"
 	"github.com/ethereum/go-ethereum"
@@ -246,7 +248,8 @@ func DeployERC20(ownerAddr, name, symbol string, amount *big.Int, client ethinte
 	txslog.Info("DeployERC20", "ownerAddr", ownerAddr, "name", name, "symbol", symbol, "amount", amount, "client", client)
 
 	Erc20OwnerAddr := common.HexToAddress(ownerAddr)
-	Erc20Addr, deployTx, _, err := erc20.DeployERC20(operatorAuth, client, name, symbol, amount, Erc20OwnerAddr)
+	//generated.DeployERC20()
+	Erc20Addr, deployTx, _, err := egenerated.DeployERC20(operatorAuth, client, name, symbol, amount, Erc20OwnerAddr)
 	if nil != err {
 		txslog.Error("DeployERC20", "Failed to DeployErc20 with err:", err.Error())
 		return "", err
